@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+private
+
+# regenerable ripper artifacts
+raw_selector_data.json
+additional_attributes.json

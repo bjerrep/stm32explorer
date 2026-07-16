@@ -1,0 +1,11 @@
+{
+  "url": "https://www.st.com/bin/st/selectors/cxst/stm32-family.json",
+  "method": "GET",
+  "headers": {
+    "referer": "https://www.st.com/content/st_com/en/stm32-mcu-product-selector.html",
+    "accept-language": "en-US",
+    "x-requested-with": "XMLHttpRequest",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "accept": "application/json, text/javascript, */*; q=0.01"
+  }
+}

@@ -1,0 +1,1169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STM32 Parametric Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d1014;
+    --panel:#151a21;
+    --panel-2:#1b222b;
+    --line:#262e39;
+    --line-soft:#1e252e;
+    --ink:#cdd8e4;
+    --ink-dim:#7d8a99;
+    --ink-faint:#566373;
+    --accent:#27e0c4;
+    --accent-dim:#0f8f7e;
+    --grid:#1a2129;
+    --grid-major:#23303a;
+    --warn:#ffcf6b;
+    /* core encoding */
+    --c-m0:#5fb0ff;
+    --c-m0p:#52d0ff;
+    --c-m3:#9a86ff;
+    --c-m4:#27e0c4;
+    --c-m7:#ffb454;
+    --c-m33:#ff6e9c;
+    --c-m55:#e6e24a;
+    --c-other:#9aa6b2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Space Grotesk",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  /* faint engineering grid on the page backdrop */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+    background-size:46px 46px;
+    opacity:.35;
+    -webkit-mask-image:radial-gradient(circle at 30% 0%,#000,transparent 75%);
+            mask-image:radial-gradient(circle at 30% 0%,#000,transparent 75%);
+  }
+  .app{
+    position:relative;z-index:1;display:grid;height:100vh;
+    grid-template-columns:var(--rail,286px) 6px 1fr;grid-template-rows:auto 1fr;
+    grid-template-areas:"head head head" "rail split plot";
+  }
+  header{
+    grid-area:head;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
+    padding:14px 22px;border-bottom:1px solid var(--line);background:rgba(13,16,20,.7);backdrop-filter:blur(6px);
+  }
+  header h1{
+    font-size:16px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin:0;
+  }
+  header h1 b{color:var(--accent);font-weight:700}
+  .meta{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-dim);display:flex;gap:16px;flex-wrap:wrap}
+  .meta span b{color:var(--ink);font-weight:500}
+
+  /* control-rail button section */
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+  .toolbtn{
+    font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.05em;
+    color:var(--ink);background:var(--panel-2);border:1px solid var(--line);
+    padding:8px 14px;border-radius:6px;cursor:pointer;transition:border-color .15s,color .15s;
+  }
+  .toolbtn:hover{border-color:var(--accent-dim);color:var(--accent)}
+  .toolbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .toolbtn.icon{padding:8px 11px;font-size:13px;line-height:1}
+  .toolbtn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+  /* lens: labelled ring of the nearest dots around a clicked one */
+  .lens-line{stroke:var(--ink-faint);stroke-width:1;opacity:.55}
+  .lens-box{fill:var(--panel);stroke:#fff;stroke-width:0.75}
+  .lens-txt{font-family:"JetBrains Mono",monospace;font-size:9px;fill:var(--ink)}
+  .lens-anchor{fill:none;stroke:var(--accent);stroke-width:2}
+
+  /* ---- control rail ---- */
+  aside{
+    grid-area:rail;background:var(--panel);overflow-y:auto;
+    padding:18px 16px 40px;scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+  }
+  /* draggable splitter between the rail and the plot (a 6px hit area with a
+     centred 1px line; replaces the rail's old static border) */
+  .splitter{
+    grid-area:split;cursor:col-resize;background:transparent;z-index:3;
+    background-image:linear-gradient(90deg,transparent 0 2px,var(--line) 2px 3px,transparent 3px);
+  }
+  .splitter:hover,.splitter.dragging{
+    background-image:linear-gradient(90deg,transparent 0 2px,var(--accent) 2px 3px,transparent 3px);
+  }
+  aside::-webkit-scrollbar{width:8px}
+  aside::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+  .group{margin-bottom:22px}
+  .eyebrow{
+    font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--ink-faint);margin:0 0 10px;display:flex;align-items:center;gap:8px;
+  }
+  .eyebrow::after{content:"";flex:1;height:1px;background:var(--line)}
+  .axisrow{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .axistag{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--accent);width:14px;font-weight:600}
+  select{
+    flex:1;appearance:none;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);
+    border-radius:6px;padding:8px 26px 8px 10px;font-family:"Space Grotesk",sans-serif;font-size:13px;cursor:pointer;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' stroke='%237d8a99' stroke-width='1.4' fill='none'/></svg>");
+    background-repeat:no-repeat;background-position:right 9px center;
+  }
+  select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .logtog{
+    font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.04em;
+    background:var(--panel-2);border:1px solid var(--line);color:var(--ink-dim);
+    border-radius:6px;padding:8px 9px;cursor:pointer;min-width:42px;text-align:center;transition:.15s;
+  }
+  .logtog[aria-pressed="true"]{color:var(--bg);background:var(--accent);border-color:var(--accent);font-weight:600}
+  .logtog:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* spread slider: 0 stacks co-located parts, >0 scatters them */
+  .slrow{display:flex;align-items:center;gap:10px;margin-top:9px}
+  .slrow label{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.04em;color:var(--ink-faint);white-space:nowrap}
+  .slrow .slval{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-dim);width:30px;text-align:right}
+  input[type=range].slider{
+    -webkit-appearance:none;appearance:none;flex:1;height:4px;border-radius:3px;
+    background:var(--line);outline:none;cursor:pointer;margin:0;
+  }
+  input[type=range].slider::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;
+    background:var(--accent);border:2px solid var(--bg);cursor:pointer;
+  }
+  input[type=range].slider::-moz-range-thumb{
+    width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);cursor:pointer;
+  }
+  input[type=range].slider:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .search{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+    padding:9px 11px;color:var(--ink);font-family:"JetBrains Mono",monospace;font-size:12px;
+  }
+  .search:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .search::placeholder{color:var(--ink-faint)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.02em;
+    border:1px solid var(--line);background:var(--panel-2);color:var(--ink-dim);
+    padding:5px 9px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:.12s;user-select:none;
+  }
+  .chip:hover{border-color:var(--ink-faint)}
+  .chip[aria-pressed="true"]{color:var(--ink);border-color:var(--swatch,var(--accent))}
+  .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--swatch,var(--ink-faint));opacity:.4}
+  .chip[aria-pressed="true"] .dot{opacity:1}
+  .chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .filterhint{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-faint);margin:8px 0 0}
+  .miniclear{background:none;border:none;color:var(--ink-faint);font-family:"JetBrains Mono",monospace;font-size:10px;cursor:pointer;text-decoration:underline;padding:0}
+  .miniclear:hover{color:var(--accent)}
+
+  /* ---- plot ---- */
+  main{grid-area:plot;position:relative;overflow:hidden}
+  #plot{width:100%;height:100%;display:block;cursor:grab;user-select:none;-webkit-user-select:none}
+  #plot.grabbing{cursor:grabbing}
+  .ax3d{pointer-events:none}
+  .axis-label,.axis-unit,.tick-text{pointer-events:none}
+  .axis-label{font-family:"Space Grotesk",sans-serif;font-size:13px;fill:var(--ink);font-weight:500}
+  .axis-unit{font-family:"JetBrains Mono",monospace;font-size:10px;fill:var(--ink-faint)}
+  .tick-text{font-family:"JetBrains Mono",monospace;font-size:10px;fill:var(--ink-dim)}
+  .gridline{stroke:var(--grid);stroke-width:1}
+  .gridline.major{stroke:var(--grid-major)}
+  .dot-pt{cursor:pointer;transition:opacity .12s}
+  .dot-pt:hover{stroke:#fff;stroke-width:1.5}
+
+  .tooltip{
+    position:absolute;pointer-events:none;z-index:5;opacity:0;transition:opacity .1s;
+    background:rgba(20,26,33,.97);border:1px solid var(--line);border-left:3px solid var(--swatch,var(--accent));
+    border-radius:8px;padding:10px 12px;min-width:172px;box-shadow:0 12px 34px rgba(0,0,0,.5);
+  }
+  .tt-name{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px}
+  .tt-sub{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--swatch,var(--accent));letter-spacing:.04em;margin-bottom:8px}
+  .tt-grid{display:grid;grid-template-columns:auto auto;gap:2px 14px;font-family:"JetBrains Mono",monospace;font-size:11px}
+  .tt-grid .k{color:var(--ink-faint)}
+  .tt-grid .v{color:var(--ink);text-align:right}
+
+  /* selected detail card */
+  .detail{
+    position:absolute;right:16px;bottom:16px;z-index:6;width:248px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 15px;
+    box-shadow:0 16px 40px rgba(0,0,0,.5);transform:translateY(10px);opacity:0;pointer-events:none;transition:.18s;
+  }
+  .detail.show{transform:none;opacity:1;pointer-events:auto}
+  .detail .x{position:absolute;top:9px;right:11px;color:var(--ink-faint);cursor:pointer;font-size:15px;line-height:1;background:none;border:none;font-family:monospace}
+  .detail .x:hover{color:var(--ink)}
+  .detail h3{font-family:"JetBrains Mono",monospace;font-size:15px;margin:0 0 3px;color:var(--ink)}
+  .detail .core{font-family:"JetBrains Mono",monospace;font-size:11px;margin-bottom:11px}
+  .detail dl{display:grid;grid-template-columns:auto auto;gap:5px 12px;margin:0;font-family:"JetBrains Mono",monospace;font-size:12px}
+  .detail dt{color:var(--ink-faint)}
+  .detail dd{margin:0;text-align:right;color:var(--ink)}
+  .detail a{display:inline-block;margin-top:12px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-dim)}
+  .detail a:hover{border-color:var(--accent)}
+  /* co-located parts picker inside the detail card */
+  .siblings{display:none;flex-wrap:wrap;gap:5px;margin:0 0 12px}
+  .siblings .sib-h{width:100%;font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-faint);margin-bottom:1px}
+  .sib{font-family:"JetBrains Mono",monospace;font-size:10px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink-dim);border-radius:5px;padding:3px 6px;cursor:pointer;transition:.12s}
+  .sib:hover{border-color:var(--ink-faint);color:var(--ink)}
+  .sib.cur{color:var(--bg);background:var(--accent);border-color:var(--accent);font-weight:600}
+  /* count badge on dots that stack several parts */
+  .badge-bg{fill:var(--panel);stroke:var(--accent);stroke-width:1}
+  .badge-txt{font-family:"JetBrains Mono",monospace;font-size:9px;font-weight:600;fill:var(--accent)}
+  .tt-more{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-faint);margin-top:6px}
+
+  .empty{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--ink-faint);font-family:"JetBrains Mono",monospace;font-size:13px}
+  .footnote{position:absolute;left:14px;bottom:10px;z-index:4;font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-faint);max-width:46%}
+  .footnote b{color:var(--warn);font-weight:500}
+
+  @media (max-width:860px){
+    .app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr;
+         grid-template-areas:"head" "rail" "plot"}
+    aside{max-height:42vh}
+    .splitter{display:none}
+    .footnote{display:none}
+    .detail{width:auto;left:16px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>STM32 <b>Parametric Explorer</b></h1>
+    <div class="meta">
+      <span>parts <b id="m-count">—</b></span>
+      <span>shown <b id="m-shown">—</b></span>
+      <span>source <b id="m-source">seed</b></span>
+      <span>updated <b id="m-date">—</b></span>
+    </div>
+  </header>
+
+  <aside>
+    <div class="group toolbar">
+      <button class="toolbtn" id="resetBtn" title="Reload stm32_data.json, enable all Core/Series/Package/Pin filters and clear Attributes">Reset</button>
+      <button class="toolbtn icon" id="lensBtn" aria-pressed="false" title="Lens: when on, click a dot to label its 20 nearest neighbours in a ring">🔍</button>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Axes</p>
+      <div class="axisrow">
+        <span class="axistag">X</span>
+        <select id="xSel"></select>
+        <button class="logtog" id="xLog" aria-pressed="false" title="Toggle log scale">log</button>
+      </div>
+      <div class="axisrow">
+        <span class="axistag">Y</span>
+        <select id="ySel"></select>
+        <button class="logtog" id="yLog" aria-pressed="false" title="Toggle log scale">log</button>
+      </div>
+      <div class="axisrow">
+        <span class="axistag">Z</span>
+        <select id="zSel"></select>
+        <button class="logtog" id="zLog" aria-pressed="false" title="Toggle log scale">log</button>
+      </div>
+      <div class="axisrow">
+        <span class="axistag">⬤</span>
+        <select id="sizeSel"></select>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Overlapping parts</p>
+      <div class="slrow" id="explodeRow">
+        <label for="explodeAmt">spread</label>
+        <input type="range" class="slider" id="explodeAmt" min="0" max="1" step="0.05" value="0.3"
+               title="How far co-located parts are scattered (0 = stacked into one badged marker)">
+        <span class="slval" id="explodeVal">0.3×</span>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Find</p>
+      <input class="search" id="search" placeholder="filter part no.  e.g. F407, H7, L4">
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Core / generation</p>
+      <div class="chips" id="coreChips"></div>
+      <p class="filterhint"><button class="miniclear" id="coreAll">all</button> · <button class="miniclear" id="coreNone">none</button></p>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Series</p>
+      <div class="chips" id="seriesChips"></div>
+      <p class="filterhint"><button class="miniclear" id="serAll">all</button> · <button class="miniclear" id="serNone">none</button></p>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Package</p>
+      <div class="chips" id="pkgChips"></div>
+      <p class="filterhint"><button class="miniclear" id="pkgAll">all</button> · <button class="miniclear" id="pkgNone">none</button></p>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Pin count</p>
+      <div class="chips" id="pinChips"></div>
+      <p class="filterhint"><button class="miniclear" id="pinAll">all</button> · <button class="miniclear" id="pinNone">none</button></p>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Attributes — simplified</p>
+      <div class="chips" id="attrChips"></div>
+      <p class="filterhint">require <b>all</b> selected · <button class="miniclear" id="attrNone">clear</button></p>
+    </div>
+  </aside>
+
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize control panel"></div>
+
+  <main>
+    <svg id="plot" preserveAspectRatio="none"></svg>
+    <div class="tooltip" id="tooltip"></div>
+    <div class="detail" id="detail">
+      <button class="x" id="detailClose" aria-label="Close">×</button>
+      <h3 id="d-name"></h3>
+      <div class="core" id="d-core"></div>
+      <div class="siblings" id="d-siblings"></div>
+      <dl id="d-list"></dl>
+      <a id="d-link" target="_blank" rel="noopener">Open on st.com →</a>
+    </div>
+    <div class="empty" id="empty"><div>No parts match the current filters.</div><div style="color:var(--accent-dim)">Loosen the core / package / series filters.</div></div>
+    <div class="footnote">Colour encodes core · X / Y / Z axes selectable. <b>Drag to rotate · Shift-drag (or right-drag) to pan · scroll to zoom · double-click to reset view.</b></div>
+  </main>
+</div>
+
+<!-- Optional dataset sidecar written by the ripper next to this file. It sets
+     window.STM32_DATA and lets the page autoload on double-click (file://),
+     where fetch() of a local .json is blocked. Harmless 404 if absent. -->
+<script src="stm32_data.js"></script>
+
+<script>
+/* ============================================================
+   ATTRIBUTE DEFINITIONS  (the six graphable axes + size options)
+   key       -> field on each part record
+   better    -> 'low' or 'high' (informational)
+   ============================================================ */
+const ATTRS = {
+  speed_mhz:    {label:"Speed",   unit:"MHz",  better:"high"},
+  run_current_ma:{label:"Power",  unit:"mA run", better:"low"},
+  price_usd:    {label:"Price",   unit:"USD",  better:"low"},
+  flash_kb:     {label:"Flash",   unit:"KB",   better:"high"},
+  ram_kb:       {label:"RAM",     unit:"KB",   better:"high"},
+  io_max:       {label:"Max I/O", unit:"pins", better:"high"},
+  pins_n:       {label:"Pin count", unit:"pins", better:"high"},
+};
+const SIZE_OPTS = {
+  none:      {label:"uniform size"},
+  flash_kb:  {label:"size = Flash"},
+  ram_kb:    {label:"size = RAM"},
+  price_usd: {label:"size = Price"},
+  io_max:    {label:"size = Max I/O"},
+  pins_n:    {label:"size = Pin count"},
+};
+
+/* core -> colour (meaningful categorical encoding) */
+const CORE_COLOR = {
+  "Cortex-M0":  getCss("--c-m0"),
+  "Cortex-M0+": getCss("--c-m0p"),
+  "Cortex-M3":  getCss("--c-m3"),
+  "Cortex-M4":  getCss("--c-m4"),
+  "Cortex-M7":  getCss("--c-m7"),
+  "Cortex-M33": getCss("--c-m33"),
+  "Cortex-M55": getCss("--c-m55"),
+};
+function getCss(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function coreColor(c){return CORE_COLOR[c] || getCss("--c-other");}
+
+/* ============================================================
+   SEED DATASET — ~50 real STM32 parts spanning the portfolio.
+   Specs (core / speed / flash / ram / io / package) are accurate;
+   price_usd and run_current_ma are approximate budgetary figures
+   intended only to demonstrate the tool. The ripper overwrites this.
+   ============================================================ */
+const SEED = {
+  source:"seed (illustrative)",
+  generated:"2026-06-12",
+  parts:[
+    // --- C0 : value line, Cortex-M0+ ---
+    {part:"STM32C011F4", series:"C0", core:"Cortex-M0+", speed_mhz:48,  flash_kb:16,  ram_kb:6,   io_max:18,  price_usd:0.40, run_current_ma:6,  package:"TSSOP20"},
+    {part:"STM32C031C6", series:"C0", core:"Cortex-M0+", speed_mhz:48,  flash_kb:32,  ram_kb:12,  io_max:45,  price_usd:0.62, run_current_ma:6,  package:"LQFP48"},
+    // --- F0 ---
+    {part:"STM32F030F4", series:"F0", core:"Cortex-M0",  speed_mhz:48,  flash_kb:16,  ram_kb:4,   io_max:15,  price_usd:0.55, run_current_ma:11, package:"TSSOP20"},
+    {part:"STM32F042K6", series:"F0", core:"Cortex-M0",  speed_mhz:48,  flash_kb:32,  ram_kb:6,   io_max:25,  price_usd:1.25, run_current_ma:11, package:"LQFP32"},
+    {part:"STM32F072RB", series:"F0", core:"Cortex-M0",  speed_mhz:48,  flash_kb:128, ram_kb:16,  io_max:51,  price_usd:2.10, run_current_ma:12, package:"LQFP64"},
+    {part:"STM32F091RC", series:"F0", core:"Cortex-M0",  speed_mhz:48,  flash_kb:256, ram_kb:32,  io_max:55,  price_usd:2.90, run_current_ma:12, package:"LQFP64"},
+    // --- F1 ---
+    {part:"STM32F103C8", series:"F1", core:"Cortex-M3",  speed_mhz:72,  flash_kb:64,  ram_kb:20,  io_max:37,  price_usd:1.80, run_current_ma:35, package:"LQFP48"},
+    {part:"STM32F103RB", series:"F1", core:"Cortex-M3",  speed_mhz:72,  flash_kb:128, ram_kb:20,  io_max:51,  price_usd:2.60, run_current_ma:35, package:"LQFP64"},
+    {part:"STM32F103ZE", series:"F1", core:"Cortex-M3",  speed_mhz:72,  flash_kb:512, ram_kb:64,  io_max:112, price_usd:6.40, run_current_ma:50, package:"LQFP144"},
+    {part:"STM32F107VC", series:"F1", core:"Cortex-M3",  speed_mhz:72,  flash_kb:256, ram_kb:64,  io_max:80,  price_usd:5.10, run_current_ma:50, package:"LQFP100"},
+    // --- F2 ---
+    {part:"STM32F207ZG", series:"F2", core:"Cortex-M3",  speed_mhz:120, flash_kb:1024,ram_kb:128, io_max:114, price_usd:8.20, run_current_ma:78, package:"LQFP144"},
+    // --- F3 ---
+    {part:"STM32F303CC", series:"F3", core:"Cortex-M4",  speed_mhz:72,  flash_kb:256, ram_kb:48,  io_max:37,  price_usd:3.80, run_current_ma:42, package:"LQFP48"},
+    {part:"STM32F334C8", series:"F3", core:"Cortex-M4",  speed_mhz:72,  flash_kb:64,  ram_kb:12,  io_max:37,  price_usd:3.10, run_current_ma:42, package:"LQFP48"},
+    // --- F4 ---
+    {part:"STM32F401RE", series:"F4", core:"Cortex-M4",  speed_mhz:84,  flash_kb:512, ram_kb:96,  io_max:50,  price_usd:3.40, run_current_ma:23, package:"LQFP64"},
+    {part:"STM32F411CE", series:"F4", core:"Cortex-M4",  speed_mhz:100, flash_kb:512, ram_kb:128, io_max:36,  price_usd:3.20, run_current_ma:27, package:"LQFP48"},
+    {part:"STM32F405RG", series:"F4", core:"Cortex-M4",  speed_mhz:168, flash_kb:1024,ram_kb:192, io_max:51,  price_usd:6.90, run_current_ma:87, package:"LQFP64"},
+    {part:"STM32F407VG", series:"F4", core:"Cortex-M4",  speed_mhz:168, flash_kb:1024,ram_kb:192, io_max:82,  price_usd:8.10, run_current_ma:87, package:"LQFP100"},
+    {part:"STM32F429ZI", series:"F4", core:"Cortex-M4",  speed_mhz:180, flash_kb:2048,ram_kb:256, io_max:114, price_usd:11.20,run_current_ma:98, package:"LQFP144"},
+    {part:"STM32F446RE", series:"F4", core:"Cortex-M4",  speed_mhz:180, flash_kb:512, ram_kb:128, io_max:50,  price_usd:5.60, run_current_ma:65, package:"LQFP64"},
+    // --- F7 ---
+    {part:"STM32F746ZG", series:"F7", core:"Cortex-M7",  speed_mhz:216, flash_kb:1024,ram_kb:320, io_max:114, price_usd:12.50,run_current_ma:120,package:"LQFP144"},
+    {part:"STM32F767ZI", series:"F7", core:"Cortex-M7",  speed_mhz:216, flash_kb:2048,ram_kb:512, io_max:114, price_usd:14.80,run_current_ma:130,package:"LQFP144"},
+    // --- G0 : Cortex-M0+ mainstream ---
+    {part:"STM32G031K8", series:"G0", core:"Cortex-M0+", speed_mhz:64,  flash_kb:64,  ram_kb:8,   io_max:28,  price_usd:1.10, run_current_ma:7,  package:"LQFP32"},
+    {part:"STM32G071RB", series:"G0", core:"Cortex-M0+", speed_mhz:64,  flash_kb:128, ram_kb:36,  io_max:60,  price_usd:2.20, run_current_ma:7,  package:"LQFP64"},
+    {part:"STM32G0B1RE", series:"G0", core:"Cortex-M0+", speed_mhz:64,  flash_kb:512, ram_kb:144, io_max:60,  price_usd:3.60, run_current_ma:8,  package:"LQFP64"},
+    // --- G4 : Cortex-M4 ---
+    {part:"STM32G431KB", series:"G4", core:"Cortex-M4",  speed_mhz:170, flash_kb:128, ram_kb:32,  io_max:25,  price_usd:2.80, run_current_ma:32, package:"LQFP32"},
+    {part:"STM32G474RE", series:"G4", core:"Cortex-M4",  speed_mhz:170, flash_kb:512, ram_kb:128, io_max:52,  price_usd:5.30, run_current_ma:38, package:"LQFP64"},
+    {part:"STM32G491RE", series:"G4", core:"Cortex-M4",  speed_mhz:170, flash_kb:512, ram_kb:112, io_max:52,  price_usd:4.70, run_current_ma:38, package:"LQFP64"},
+    // --- L0 : ultra-low-power Cortex-M0+ ---
+    {part:"STM32L011K4", series:"L0", core:"Cortex-M0+", speed_mhz:32,  flash_kb:16,  ram_kb:2,   io_max:26,  price_usd:1.00, run_current_ma:0.8,package:"LQFP32"},
+    {part:"STM32L053R8", series:"L0", core:"Cortex-M0+", speed_mhz:32,  flash_kb:64,  ram_kb:8,   io_max:51,  price_usd:2.10, run_current_ma:0.9,package:"LQFP64"},
+    {part:"STM32L073RZ", series:"L0", core:"Cortex-M0+", speed_mhz:32,  flash_kb:192, ram_kb:20,  io_max:51,  price_usd:3.10, run_current_ma:1.0,package:"LQFP64"},
+    // --- L1 : Cortex-M3 LP ---
+    {part:"STM32L151RB", series:"L1", core:"Cortex-M3",  speed_mhz:32,  flash_kb:128, ram_kb:16,  io_max:51,  price_usd:3.40, run_current_ma:6,  package:"LQFP64"},
+    // --- L4 : Cortex-M4 LP ---
+    {part:"STM32L432KC", series:"L4", core:"Cortex-M4",  speed_mhz:80,  flash_kb:256, ram_kb:64,  io_max:26,  price_usd:3.00, run_current_ma:8,  package:"LQFP32"},
+    {part:"STM32L476RG", series:"L4", core:"Cortex-M4",  speed_mhz:80,  flash_kb:1024,ram_kb:128, io_max:51,  price_usd:5.50, run_current_ma:10, package:"LQFP64"},
+    {part:"STM32L496ZG", series:"L4", core:"Cortex-M4",  speed_mhz:80,  flash_kb:1024,ram_kb:320, io_max:114, price_usd:7.40, run_current_ma:11, package:"LQFP144"},
+    {part:"STM32L4R5ZI", series:"L4+",core:"Cortex-M4",  speed_mhz:120, flash_kb:2048,ram_kb:640, io_max:114, price_usd:9.10, run_current_ma:14, package:"LQFP144"},
+    // --- L5 : Cortex-M33 LP TrustZone ---
+    {part:"STM32L552ZE", series:"L5", core:"Cortex-M33", speed_mhz:110, flash_kb:512, ram_kb:256, io_max:114, price_usd:6.80, run_current_ma:12, package:"LQFP144"},
+    // --- U5 : Cortex-M33 ultra-low-power ---
+    {part:"STM32U575ZI", series:"U5", core:"Cortex-M33", speed_mhz:160, flash_kb:2048,ram_kb:786, io_max:114, price_usd:8.90, run_current_ma:13, package:"LQFP144"},
+    {part:"STM32U585AI", series:"U5", core:"Cortex-M33", speed_mhz:160, flash_kb:2048,ram_kb:786, io_max:139, price_usd:9.60, run_current_ma:13, package:"UFBGA169"},
+    // --- WB / WL : wireless Cortex-M4(+M0+) ---
+    {part:"STM32WB55RG", series:"WB", core:"Cortex-M4",  speed_mhz:64,  flash_kb:1024,ram_kb:256, io_max:50,  price_usd:5.20, run_current_ma:6,  package:"VFQFPN68"},
+    {part:"STM32WL55JC", series:"WL", core:"Cortex-M4",  speed_mhz:48,  flash_kb:256, ram_kb:64,  io_max:43,  price_usd:4.40, run_current_ma:5,  package:"UFBGA73"},
+    // --- H5 : Cortex-M33 high perf ---
+    {part:"STM32H562ZI", series:"H5", core:"Cortex-M33", speed_mhz:250, flash_kb:2048,ram_kb:640, io_max:114, price_usd:7.90, run_current_ma:70, package:"LQFP144"},
+    // --- H7 : Cortex-M7 (+M4) flagship ---
+    {part:"STM32H750VB", series:"H7", core:"Cortex-M7",  speed_mhz:480, flash_kb:128, ram_kb:1024,io_max:82,  price_usd:6.30, run_current_ma:175,package:"LQFP100"},
+    {part:"STM32H743ZI", series:"H7", core:"Cortex-M7",  speed_mhz:480, flash_kb:2048,ram_kb:1024,io_max:114, price_usd:11.40,run_current_ma:200,package:"LQFP144"},
+    {part:"STM32H723ZG", series:"H7", core:"Cortex-M7",  speed_mhz:550, flash_kb:1024,ram_kb:564, io_max:114, price_usd:9.80, run_current_ma:185,package:"LQFP144"},
+    {part:"STM32H7A3ZI", series:"H7", core:"Cortex-M7",  speed_mhz:280, flash_kb:2048,ram_kb:1376,io_max:114, price_usd:10.90,run_current_ma:160,package:"LQFP144"},
+    {part:"STM32H747XI", series:"H7", core:"Cortex-M7",  speed_mhz:480, flash_kb:2048,ram_kb:1024,io_max:114, price_usd:13.60,run_current_ma:230,package:"TFBGA240"},
+    // --- N6 : Cortex-M55 + Neural-ART (newest) ---
+    {part:"STM32N657X0", series:"N6", core:"Cortex-M55", speed_mhz:800, flash_kb:0,   ram_kb:4200,io_max:114, price_usd:14.50,run_current_ma:300,package:"TFBGA264"},
+  ]
+};
+
+/* ============================================================ */
+let DATA = normalize(SEED);
+const DEFAULT_LOG={x:true, y:true, z:true};   // default axes flash / speed / price all log
+const state = {
+  x:"flash_kb", y:"price_usd", z:"speed_mhz", size:"none",
+  xLog:DEFAULT_LOG.x, yLog:DEFAULT_LOG.y, zLog:DEFAULT_LOG.z,
+  explodeAmt:0.3,                                        // spread: 0 = stacked, >0 scatters co-located parts
+  lens:false, lensPart:null,                             // lens mode + the clicked part it's anchored on
+  search:"",
+  cores:new Set(), packages:new Set(), pins:new Set(), series:new Set(),
+  attrsReq:new Set(),                                    // required capabilities (AND, default empty)
+  anchor:{core:null, series:null, pkg:null, pin:null, attr:null},  // per-group "previous pressed"
+  selected:null,
+};
+
+function normalize(d){
+  const parts = d.parts.map(p=>{
+    const sp=splitPackage(p.package);
+    return {...p, url:p.url||stUrl(p.part), pkgFamily:sp.family, pins:sp.pins,
+            pins_n:sp.pins==="—"?null:+sp.pins, attrs:p.attrs||[]};   // numeric pin count for axes/size
+  });
+  return {source:d.source||"unknown", generated:d.generated||"—",
+          attr_order:d.attr_order||[], parts};
+}
+/* "LQFP64" -> {family:"LQFP", pins:"64"}; tolerant of spaces/dashes/leading 0s.
+   A parsed count below the smallest real STM32 package (SO8) is junk from a
+   non-standard package string (e.g. "MSL1") — report the pin count as unknown. */
+function splitPackage(pkg){
+  const m=/([A-Za-z]+)[\s-]*0*(\d+)/.exec(pkg||"");
+  if(!m) return {family:(pkg||"—"), pins:"—"};
+  return {family:m[1].toUpperCase(), pins:(+m[2]<8?"—":m[2])};
+}
+function stUrl(part){
+  const base = part.toLowerCase().replace(/[^a-z0-9]/g,"");
+  return "https://www.st.com/en/microcontrollers-microprocessors/"+base+".html";
+}
+
+/* ---- build controls ---- */
+const $ = s=>document.querySelector(s);
+function buildAxisSelectors(){
+  const opts = Object.entries(ATTRS).map(([k,a])=>`<option value="${k}">${a.label} (${a.unit})</option>`).join("");
+  $("#xSel").innerHTML=opts; $("#ySel").innerHTML=opts; $("#zSel").innerHTML=opts;
+  $("#xSel").value=state.x; $("#ySel").value=state.y; $("#zSel").value=state.z;
+  $("#sizeSel").innerHTML=Object.entries(SIZE_OPTS).map(([k,a])=>`<option value="${k}">${a.label}</option>`).join("");
+  $("#sizeSel").value=state.size;
+}
+function buildFilters(){
+  // cores in canonical order
+  const order=["Cortex-M0","Cortex-M0+","Cortex-M3","Cortex-M4","Cortex-M7","Cortex-M33","Cortex-M55"];
+  const cores=[...new Set(DATA.parts.map(p=>p.core))].sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+  const pkgs =[...new Set(DATA.parts.map(p=>p.pkgFamily))].sort();
+  const pins =[...new Set(DATA.parts.map(p=>p.pins))].sort((a,b)=>(+a||0)-(+b||0));
+  const sers =[...new Set(DATA.parts.map(p=>p.series))].sort();
+  state.cores=new Set(cores); state.packages=new Set(pkgs); state.pins=new Set(pins); state.series=new Set(sers);
+
+  $("#coreChips").innerHTML=cores.map(c=>{
+    const col=coreColor(c);
+    return `<button class="chip" role="switch" aria-pressed="true" data-core="${c}" style="--swatch:${col}"><span class="dot"></span>${c.replace("Cortex-","")}</button>`;
+  }).join("");
+  $("#pkgChips").innerHTML=pkgs.map(p=>`<button class="chip" role="switch" aria-pressed="true" data-pkg="${p}"><span class="dot"></span>${p}</button>`).join("");
+  $("#pinChips").innerHTML=pins.map(p=>`<button class="chip" role="switch" aria-pressed="true" data-pin="${p}"><span class="dot"></span>${p}</button>`).join("");
+  $("#seriesChips").innerHTML=sers.map(s=>`<button class="chip" role="switch" aria-pressed="true" data-ser="${s}"><span class="dot"></span>${s}</button>`).join("");
+
+  // simplified attributes: AND-filter chips, default OFF (no requirement).
+  // Order by the dataset's attr_order, keeping only chips that occur in data.
+  const present=new Set(DATA.parts.flatMap(p=>p.attrs));
+  const ordered=(DATA.attr_order.length?DATA.attr_order:[...present].sort())
+                  .filter(a=>present.has(a));
+  const extras=[...present].filter(a=>!ordered.includes(a)).sort();
+  const attrs=ordered.concat(extras);
+  state.attrsReq=new Set();
+  $("#attrChips").innerHTML=attrs.map(a=>`<button class="chip" role="switch" aria-pressed="false" data-attr="${a}"><span class="dot"></span>${a}</button>`).join("");
+
+  state.anchor={core:null, series:null, pkg:null, pin:null, attr:null};
+  $("#coreChips").querySelectorAll(".chip").forEach(ch=>ch.onclick=e=>chipClick("core",ch,e));
+  $("#pkgChips").querySelectorAll(".chip").forEach(ch=>ch.onclick=e=>chipClick("pkg",ch,e));
+  $("#pinChips").querySelectorAll(".chip").forEach(ch=>ch.onclick=e=>chipClick("pin",ch,e));
+  $("#seriesChips").querySelectorAll(".chip").forEach(ch=>ch.onclick=e=>chipClick("series",ch,e));
+  $("#attrChips").querySelectorAll(".chip").forEach(ch=>ch.onclick=e=>chipClick("attr",ch,e));
+}
+function toggle(set,key,el){
+  if(set.has(key)){set.delete(key);el.setAttribute("aria-pressed","false");}
+  else{set.add(key);el.setAttribute("aria-pressed","true");}
+  render();
+}
+
+/* chip groups: maps a group name -> its Set, container, and data-* attribute */
+const CHIP_GROUPS = {
+  core:   {getSet:()=>state.cores,    sel:"#coreChips",   prop:"core"},
+  series: {getSet:()=>state.series,   sel:"#seriesChips", prop:"ser"},
+  pkg:    {getSet:()=>state.packages, sel:"#pkgChips",    prop:"pkg"},
+  pin:    {getSet:()=>state.pins,     sel:"#pinChips",    prop:"pin"},
+  attr:   {getSet:()=>state.attrsReq, sel:"#attrChips",   prop:"attr"},
+};
+/* Shift+click selects the block from the group's anchor ("previous pressed")
+   to the clicked chip; a plain click toggles and becomes the new anchor. */
+function chipClick(g, el, e){
+  const cfg=CHIP_GROUPS[g], set=cfg.getSet(), key=el.dataset[cfg.prop];
+  if(e.shiftKey && state.anchor[g]!=null){
+    const chips=[...$(cfg.sel).querySelectorAll(".chip")];
+    const i0=chips.findIndex(c=>c.dataset[cfg.prop]===state.anchor[g]);
+    const i1=chips.indexOf(el);
+    if(i0>-1 && i1>-1){
+      for(let i=Math.min(i0,i1);i<=Math.max(i0,i1);i++){
+        set.add(chips[i].dataset[cfg.prop]);
+        chips[i].setAttribute("aria-pressed","true");
+      }
+      render();
+      return;                       // anchor stays put so the range can be re-extended
+    }
+  }
+  toggle(set,key,el);
+  state.anchor[g]=key;              // a plain press defines the previous pressed
+}
+function setAll(set,list,container,attr,on){
+  set.clear(); if(on) list.forEach(v=>set.add(v));
+  container.querySelectorAll(".chip").forEach(ch=>ch.setAttribute("aria-pressed", on?"true":"false"));
+  render();
+}
+
+/* ---- filtering ---- */
+function visible(){
+  const q=state.search.trim().toUpperCase();
+  const reqs=[...state.attrsReq];
+  return DATA.parts.filter(p=>
+    state.cores.has(p.core) &&
+    state.packages.has(p.pkgFamily) &&
+    state.pins.has(p.pins) &&
+    state.series.has(p.series) &&
+    reqs.every(a=>p.attrs.includes(a)) &&    // AND: part must have every required attribute
+    (q==="" || p.part.toUpperCase().includes(q))
+  );
+}
+
+/* ---- scale helpers ---- */
+/* Some parts report flash as 0 or null (e.g. the N6, which boots from external
+   memory). Floor flash to 1KB for plotting so those dots still land on the graph
+   (and don't collapse the log axis or slide to 0). Only floored dimensions
+   (FLOOR) are affected; other axes keep null as "unknown". Tooltips still show
+   the raw value. */
+const FLOOR={flash_kb:1};
+function dv(dim,v){const f=FLOOR[dim]; if(f==null) return v; return (typeof v==="number" && v>=f)?v:f;}
+
+function makeScale(vals,log,range){
+  let min=Math.min(...vals), max=Math.max(...vals);
+  if(log){ min=Math.max(min,1e-3); if(min===max){min/=2;max*=2;}
+    const lo=Math.log10(min), hi=Math.log10(max), pad=(hi-lo)*0.06||0.3;
+    const a=lo-pad,b=hi+pad;
+    return v=>range[0]+(Math.log10(Math.max(v,1e-3))-a)/(b-a)*(range[1]-range[0]);
+  }
+  if(min===max){min-=1;max+=1;}
+  const pad=(max-min)*0.06; const a=min-pad,b=max+pad;
+  return v=>range[0]+(v-a)/(b-a)*(range[1]-range[0]);
+}
+function ticks(vals,log){
+  let min=Math.min(...vals),max=Math.max(...vals);
+  if(log){
+    min=Math.max(min,1e-3);
+    const lo=Math.floor(Math.log10(min)), hi=Math.ceil(Math.log10(max)), out=[];
+    for(let e=lo;e<=hi;e++){const b=Math.pow(10,e); [1,2,5].forEach(m=>{const v=m*b; if(v>=min*0.5&&v<=max*1.5)out.push(v);});}
+    return out;
+  }
+  const span=max-min||1, raw=span/5, mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const step=[1,2,5,10].find(s=>s*mag>=raw)*mag, out=[];
+  for(let v=Math.ceil(min/step)*step; v<=max; v+=step) out.push(+v.toFixed(6));
+  return out;
+}
+function fmt(v){
+  if(v>=1000) return (v/1000)+"k";
+  if(v<1 && v>0) return v.toFixed(v<0.1?2:1);
+  return ""+v;
+}
+
+/* ---- render ---- */
+const svg=$("#plot"), NS="http://www.w3.org/2000/svg";
+let W=0,H=0;
+const M={l:34,r:34,t:30,b:38};
+
+/* 3-D view state. yaw/pitch are orbit angles, zoom scales the projection,
+   panX/panY translate the scene in screen pixels. */
+const D=3.6;                                   // camera distance in cube units
+const DEFAULT_VIEW={yaw:0.6-Math.PI/2, pitch:0.5, zoom:1, panX:0, panY:0};  // default orbit (data Z is vertical)
+let view={...DEFAULT_VIEW, _dragging:false, _moved:false, _mode:"rotate", _lx:0, _ly:0};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* even-ish points on a unit sphere (fibonacci spiral) — used to scatter
+   co-located parts in "explode" mode so each gets its own reachable dot */
+function fibSphere(i,n){
+  if(n<=1) return [0,0,0];
+  const ga=Math.PI*(3-Math.sqrt(5));           // golden angle
+  const y=1-(i/(n-1))*2;                        // top (1) → bottom (-1)
+  const r=Math.sqrt(Math.max(0,1-y*y));
+  const th=ga*i;
+  return [Math.cos(th)*r, y, Math.sin(th)*r];
+}
+
+/* fraction of the SMALLER dot covered by two circles' overlap (0..1) — decides
+   which co-located dots stack. Sum of the two circular segments over π·min(r²).
+   For equal dots, >0.5 ⇔ centre distance < ~0.8·r. */
+function overlapFrac(x1,y1,r1,x2,y2,r2){
+  const d=Math.hypot(x1-x2,y1-y2);
+  if(d>=r1+r2) return 0;                          // disjoint
+  if(d<=Math.abs(r1-r2)) return 1;                // one fully inside the other
+  const r1s=r1*r1, r2s=r2*r2;
+  const a1=Math.acos((d*d+r1s-r2s)/(2*d*r1));
+  const a2=Math.acos((d*d+r2s-r1s)/(2*d*r2));
+  const lens=r1s*(a1-Math.sin(a1)*Math.cos(a1))+r2s*(a2-Math.sin(a2)*Math.cos(a2));
+  return lens/(Math.PI*Math.min(r1s,r2s));
+}
+
+function render(){
+  const parts=visible();
+  $("#m-count").textContent=DATA.parts.length;
+  $("#m-shown").textContent=parts.length;
+  $("#m-source").textContent=DATA.source;
+  $("#m-date").textContent=DATA.generated;
+  $("#empty").style.display = parts.length?"none":"flex";
+
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  if(!W||!H||!parts.length) return;
+
+  const xa=ATTRS[state.x], ya=ATTRS[state.y], za=ATTRS[state.z];
+  // scale/tick domains exclude missing values (null price etc.) so the axis
+  // isn't skewed toward 0 by them; those parts get parked off-frame below.
+  const vals=dim=>{const a=parts.map(p=>dv(dim,p[dim])).filter(v=>v!=null && !Number.isNaN(v)); return a.length?a:[0,1];};
+  const xv=vals(state.x), yv=vals(state.y), zv=vals(state.z);
+  const px0=M.l, px1=W-M.r, py0=H-M.b, py1=M.t;
+  const cx=(px0+px1)/2, cy=(py0+py1)/2;
+  const S=Math.min(px1-px0, py0-py1);
+  const f=S*0.62;                              // focal length
+
+  // each axis maps its values into the cube range [-1,1] (log-aware)
+  const nx=makeScale(xv,state.xLog,[-1,1]);
+  const ny=makeScale(yv,state.yLog,[-1,1]);
+  const nz=makeScale(zv,state.zLog,[-1,1]);
+
+  // A missing value on an axis (null price, or e.g. Max-I/O the ST feed omits
+  // for some new parts) is parked just outside the frame below the axis minimum
+  // instead of coercing to 0 — so those parts read as a distinct "no data" lane
+  // rather than masquerading as zero.
+  const OFF=-1.18;
+  const nrm=(dim,scale,v)=> (v==null) ? OFF : scale(v);
+
+  // orbit: yaw about the vertical axis, then pitch about the horizontal
+  const cyaw=Math.cos(view.yaw), syaw=Math.sin(view.yaw);
+  const cpit=Math.cos(view.pitch), spit=Math.sin(view.pitch);
+  function project(x,y,z){
+    const X=x*cyaw+z*syaw, Z=-x*syaw+z*cyaw;     // rotate Y
+    const Y2=y*cpit - Z*spit, Z2=y*spit + Z*cpit; // rotate X
+    const pr=f/(D-Z2)*view.zoom;                  // perspective + zoom
+    return {x:cx+X*pr+view.panX, y:cy-Y2*pr+view.panY, z:Z2, pr};
+  }
+  // Data axes -> cube: data Z is the vertical (up) axis; data X and Y form the
+  // gridded floor. (project's middle arg is the vertical cube axis.)
+  const projD=(dx,dy,dz)=>project(dx,dz,dy);
+  function seg(a,b,cls){const A=project(a[0],a[1],a[2]),B=project(b[0],b[1],b[2]);
+    svg.appendChild(el("line",{x1:A.x,y1:A.y,x2:B.x,y2:B.y,class:cls}));}
+
+  const xt=ticks(xv,state.xLog), yt=ticks(yv,state.yLog), zt=ticks(zv,state.zLog);
+
+  // floor grid on the y=-1 plane: the data X–Y plane (data Z is vertical)
+  xt.forEach(t=>seg([nx(t),-1,-1],[nx(t),-1,1],"gridline ax3d"));
+  yt.forEach(t=>seg([-1,-1,ny(t)],[1,-1,ny(t)],"gridline ax3d"));
+
+  // cube wireframe (12 edges connecting corners that differ in one axis bit)
+  const corners=[];
+  for(let i=0;i<8;i++) corners.push([(i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1]);
+  for(let i=0;i<8;i++) for(let j=i+1;j<8;j++){
+    const d=i^j; if(d===1||d===2||d===4) seg(corners[i],corners[j],"gridline major ax3d");
+  }
+
+  // tick labels along three front edges
+  function lbl(p3,t,anchor,dx,dy){const P=project(p3[0],p3[1],p3[2]);
+    const e=el("text",{x:P.x+(dx||0),y:P.y+(dy||0),class:"tick-text","text-anchor":anchor||"middle"});
+    e.textContent=fmt(t); svg.appendChild(e);}
+  xt.forEach(t=>lbl([nx(t),-1,1],t,"middle",0,15));   // X along front-bottom (floor)
+  yt.forEach(t=>lbl([1,-1,ny(t)],t,"start",8,4));      // Y along right-bottom (floor)
+  zt.forEach(t=>lbl([-1,nz(t),1],t,"end",-8,4));       // Z up the front-left edge (vertical)
+
+  // axis name + unit
+  function axisName(p3,txt,unit,anchor,dx,dy){const P=project(p3[0],p3[1],p3[2]);
+    const e=el("text",{x:P.x+(dx||0),y:P.y+(dy||0),class:"axis-label","text-anchor":anchor||"middle"});
+    e.textContent=txt; svg.appendChild(e);
+    const u=el("text",{x:P.x+(dx||0),y:P.y+(dy||0)+14,class:"axis-unit","text-anchor":anchor||"middle"});
+    u.textContent=unit; svg.appendChild(u);}
+  axisName([0,-1.05,1.18], xa.label, xa.unit, "middle",0,30);   // X (floor)
+  axisName([1.22,-1.1,0],  ya.label, ya.unit, "start",10,18);   // Y (floor)
+  axisName([-1.2,0,1],     za.label, za.unit, "end",-12,0);      // Z (vertical)
+
+  // optional size encoding: maps the chosen metric to a radius multiplier
+  let sizeFac=()=>1;
+  if(state.size!=="none"){
+    const sv=parts.map(p=>dv(state.size,p[state.size])||0), smin=Math.min(...sv), smax=Math.max(...sv);
+    sizeFac=v=>{const t=smax===smin?0.5:(Math.sqrt(Math.max(v,0))-Math.sqrt(smin))/(Math.sqrt(smax)-Math.sqrt(smin)||1); return (0.55+t*1.7)*0.5;};
+  }
+
+  // Stacking is by VISUAL overlap, not exact value equality: co-located dots
+  // whose circles overlap by >50% are grouped so the spread slider can pull
+  // them apart. Project every part to its base (un-spread) screen position and
+  // radius, then union-find the dots that overlap. A spatial grid (cell =
+  // 2·maxRadius, so any overlapping pair falls in neighbouring cells) keeps it
+  // ~O(n) per frame.
+  const explode=state.explodeAmt>0;              // spread slider at 0 → stacked
+  const nodes=parts.map(p=>{
+    const x=dv(state.x,p[state.x]), y=dv(state.y,p[state.y]), z=dv(state.z,p[state.z]);
+    const nX=nrm(state.x,nx,x), nY=nrm(state.y,ny,y), nZ=nrm(state.z,nz,z);  // off-frame if unpriced
+    const P=projD(nX,nY,nZ);
+    const sizeVal=dv(state.size,p[state.size])||0;
+    const r=clamp(2.3*(D/(D-P.z))*Math.sqrt(view.zoom)*sizeFac(sizeVal),1.2,26);
+    return {p,nX,nY,nZ,P,r};
+  });
+
+  const uf=nodes.map((_,i)=>i);
+  const find=i=>{while(uf[i]!==i){uf[i]=uf[uf[i]];i=uf[i];}return i;};
+  const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)uf[a]=b;};
+
+  const maxR=nodes.reduce((m,d)=>Math.max(m,d.r),1), cell=Math.max(2*maxR,1);
+  const grid=new Map(), ckey=(cx,cy)=>cx+","+cy;
+  nodes.forEach((d,i)=>{
+    d.cx=Math.floor(d.P.x/cell); d.cy=Math.floor(d.P.y/cell);
+    const k=ckey(d.cx,d.cy); let b=grid.get(k); if(!b){b=[]; grid.set(k,b);} b.push(i);
+  });
+  nodes.forEach((d,i)=>{
+    for(let gx=d.cx-1;gx<=d.cx+1;gx++) for(let gy=d.cy-1;gy<=d.cy+1;gy++){
+      const b=grid.get(ckey(gx,gy)); if(!b) continue;
+      for(const j of b){ if(j<=i) continue; const e=nodes[j];
+        if(overlapFrac(d.P.x,d.P.y,d.r,e.P.x,e.P.y,e.r)>0.5) union(i,j);
+      }
+    }
+  });
+
+  // gather clusters; a cluster's anchor is the centroid of its members'
+  // (already normalized, off-frame-aware) cube positions
+  const groups=new Map();
+  nodes.forEach((d,i)=>{
+    const root=find(i); let g=groups.get(root);
+    if(!g){g={members:[],_sx:0,_sy:0,_sz:0}; groups.set(root,g);}
+    g.members.push(d.p); g._sx+=d.nX; g._sy+=d.nY; g._sz+=d.nZ;
+  });
+  groups.forEach(g=>{const n=g.members.length; g.ax=g._sx/n; g.ay=g._sy/n; g.az=g._sz/n;});
+
+  // Spread shaping: detect whether a cluster sits on a local *line* of parts in
+  // 3-D (normalized data space). If so, scatter it as a disc perpendicular to the
+  // line (PCA principal axis) instead of a sphere, so co-linear families fan out.
+  const RHO=0.20;                                 // neighbourhood radius (normalized)
+  let lineFit=()=>null;
+  if(explode){
+    const g3=new Map(), k3=(a,b,c)=>a+","+b+","+c;
+    nodes.forEach((d,i)=>{
+      const k=k3(Math.floor(d.nX/RHO),Math.floor(d.nY/RHO),Math.floor(d.nZ/RHO));
+      let arr=g3.get(k); if(!arr){arr=[]; g3.set(k,arr);} arr.push(i);
+    });
+    lineFit=(cx,cy,cz)=>{                          // -> {d:[unit axis], s:linearity 1/3..1} | null
+      const a0=Math.floor(cx/RHO),b0=Math.floor(cy/RHO),c0=Math.floor(cz/RHO), seen=new Set(), pts=[];
+      scan: for(let a=a0-1;a<=a0+1;a++) for(let b=b0-1;b<=b0+1;b++) for(let c=c0-1;c<=c0+1;c++){
+        const arr=g3.get(k3(a,b,c)); if(!arr) continue;
+        for(const i of arr){ const d=nodes[i], dx=d.nX-cx,dy=d.nY-cy,dz=d.nZ-cz;
+          if(dx*dx+dy*dy+dz*dz>RHO*RHO) continue;
+          const key=Math.round(d.nX*100)+","+Math.round(d.nY*100)+","+Math.round(d.nZ*100);  // dedupe coincident
+          if(seen.has(key)) continue; seen.add(key); pts.push([d.nX,d.nY,d.nZ]);
+          if(pts.length>=80) break scan;           // cap PCA sample on dense neighbourhoods
+        }
+      }
+      if(pts.length<3) return null;
+      let mx=0,my=0,mz=0; for(const p of pts){mx+=p[0];my+=p[1];mz+=p[2];}
+      const m=pts.length; mx/=m; my/=m; mz/=m;
+      let xx=0,yy=0,zz=0,xy=0,xz=0,yz=0;
+      for(const p of pts){const dx=p[0]-mx,dy=p[1]-my,dz=p[2]-mz;
+        xx+=dx*dx; yy+=dy*dy; zz+=dz*dz; xy+=dx*dy; xz+=dx*dz; yz+=dy*dz;}
+      const trace=xx+yy+zz; if(trace<1e-6) return null;
+      let vx=1,vy=1,vz=1;                          // power iteration for the dominant eigenvector
+      for(let it=0;it<12;it++){
+        const ax=xx*vx+xy*vy+xz*vz, ay=xy*vx+yy*vy+yz*vz, az=xz*vx+yz*vy+zz*vz;
+        const l=Math.hypot(ax,ay,az)||1; vx=ax/l; vy=ay/l; vz=az/l;
+      }
+      const lam1=vx*(xx*vx+xy*vy+xz*vz)+vy*(xy*vx+yy*vy+yz*vz)+vz*(xz*vx+yz*vy+zz*vz);
+      return {d:[vx,vy,vz], s:lam1/trace};
+    };
+  }
+  const perpBasis=d=>{                             // two unit vectors spanning the plane ⟂ d
+    const a=Math.abs(d[0])<0.9?[1,0,0]:[0,1,0], ad=a[0]*d[0]+a[1]*d[1]+a[2]*d[2];
+    let ux=a[0]-ad*d[0],uy=a[1]-ad*d[1],uz=a[2]-ad*d[2]; const ul=Math.hypot(ux,uy,uz)||1;
+    ux/=ul; uy/=ul; uz/=ul;
+    return [[ux,uy,uz],[d[1]*uz-d[2]*uy, d[2]*ux-d[0]*uz, d[0]*uy-d[1]*ux]];
+  };
+  const GA=Math.PI*(3-Math.sqrt(5));
+
+  // build the markers to draw. Each carries its cluster (for tooltip/selection),
+  // its projected position, and the value driving its size. In explode mode a
+  // stack becomes one marker per member (`one`), offset around the shared point.
+  const items=[];
+  groups.forEach(g=>{
+    const bx=g.ax, by=g.ay, bz=g.az, n=g.members.length;
+    if(explode && n>1){
+      const R=(0.045+0.02*Math.sqrt(n))*state.explodeAmt; // cluster radius, scaled by the spread slider
+      const fit=lineFit(bx,by,bz), disc=fit && fit.s>0.55;   // collinear enough → disc
+      const basis=disc?perpBasis(fit.d):null;
+      g.members.forEach((m,i)=>{
+        let o;
+        if(disc){                                  // sunflower in the plane ⟂ the line, thin along it
+          const t=Math.sqrt((i+0.5)/n)*1.35, th=GA*i, aj=((i&1)?0.18:-0.18)*t;
+          const pu=t*Math.cos(th), pv=t*Math.sin(th), u=basis[0], v=basis[1], d=fit.d;
+          o=[pu*u[0]+pv*v[0]+aj*d[0], pu*u[1]+pv*v[1]+aj*d[1], pu*u[2]+pv*v[2]+aj*d[2]];
+        } else {
+          o=fibSphere(i,n);
+        }
+        items.push({g, one:m, P:projD(bx+o[0]*R, by+o[1]*R, bz+o[2]*R), sizeVal:dv(state.size,m[state.size])||0});
+      });
+    } else {
+      const sizeVal=Math.max(...g.members.map(m=>dv(state.size,m[state.size])||0));
+      items.push({g, one:null, P:projD(bx,by,bz), sizeVal});
+    }
+  });
+
+  // paint back-to-front so nearer markers sit on top
+  items.sort((a,b)=>a.P.z-b.P.z);
+  const drawn=[];                                // screen positions for the lens
+  items.forEach(({g,one,P,sizeVal})=>{
+    const rep=one||g.members[0], n=one?1:g.members.length;
+    drawn.push({x:P.x, y:P.y, part:rep.part, n});
+    const c=coreColor(rep.core);
+    const r=clamp(2.3*(D/(D-P.z))*Math.sqrt(view.zoom)*sizeFac(sizeVal),1.2,26);  // depth + size
+    const op=0.45+0.4*clamp((P.z+1.6)/3.2,0,1);                   // nearer = more opaque
+    const dot=el("circle",{cx:P.x,cy:P.y,r,fill:c,"fill-opacity":op,stroke:c,"stroke-opacity":0.95,class:"dot-pt"});
+    const sel = one ? one.part===state.selected : g.members.some(m=>m.part===state.selected);
+    if(sel){dot.setAttribute("stroke","#fff");dot.setAttribute("stroke-width","2");}
+    // a scattered member behaves as a single part; a stacked marker as its group
+    const tipArg = one ? {members:[one]} : g;
+    dot.addEventListener("mouseenter",e=>showTip(e,tipArg,c));
+    dot.addEventListener("mousemove",moveTip);
+    dot.addEventListener("mouseleave",hideTip);
+    dot.addEventListener("click",()=>{ if(view._moved) return;
+      if(state.lens){ state.lensPart=rep.part; render(); return; }   // lens: label nearest neighbours
+      one?selectPart(one):selectGroup(g); });
+    svg.appendChild(dot);
+    if(n>1){                                   // ring + count badge for a stack
+      const off=r*0.72+3, bx=P.x+off, by=P.y-off;
+      svg.appendChild(el("circle",{cx:P.x,cy:P.y,r:r+2.5,fill:"none",stroke:c,"stroke-opacity":0.5,"stroke-width":1,class:"ax3d"}));
+      svg.appendChild(el("circle",{cx:bx,cy:by,r:7,class:"badge-bg ax3d"}));
+      const t=el("text",{x:bx,y:by+3,class:"badge-txt ax3d","text-anchor":"middle"}); t.textContent=n; svg.appendChild(t);
+    }
+  });
+
+  if(state.lens && state.lensPart) drawLens(drawn);
+}
+
+/* Lens: ring of labels for the 20 dots nearest the clicked one. Popups sit on a
+   fixed-radius circle around the clicked dot (deliberately NOT nudged to stay
+   on-screen — the user picks a dot where the ring fits), each connected to its
+   real dot. Popups are ordered by each dot's bearing from the centre so the
+   connectors stay radial and don't cross. */
+function drawLens(drawn){
+  const anchor=drawn.find(d=>d.part===state.lensPart);
+  if(!anchor) return;
+  const near=drawn
+    .map(d=>({d, dist:Math.hypot(d.x-anchor.x, d.y-anchor.y), ang:Math.atan2(d.y-anchor.y, d.x-anchor.x)}))
+    .sort((a,b)=>a.dist-b.dist).slice(0,20)
+    .sort((a,b)=>a.ang-b.ang);
+  const N=near.length, base=Math.min(W,H)*0.5;    // fixed ring size (position-independent)
+  const radii=[base*0.42, base*0.33];             // alternate outer/inner to stagger labels (70%/55% −40%)
+  const layer=el("g",{class:"lens-layer"});
+  near.forEach((o,k)=>{
+    const th=2*Math.PI*k/N - Math.PI/2;            // evenly spaced, starting at the top
+    const R=radii[k%2];
+    const px=anchor.x+R*Math.cos(th), py=anchor.y+R*Math.sin(th);
+    layer.appendChild(el("line",{x1:px,y1:py,x2:o.d.x,y2:o.d.y,class:"lens-line"}));
+    const label=o.d.part + (o.d.n>1?` +${o.d.n-1}`:"");
+    const w=label.length*5.7+10;
+    layer.appendChild(el("rect",{x:px-w/2,y:py-7.5,width:w,height:15,rx:4,class:"lens-box"}));
+    const t=el("text",{x:px,y:py+3.2,class:"lens-txt","text-anchor":"middle"}); t.textContent=label;
+    layer.appendChild(t);
+  });
+  layer.appendChild(el("circle",{cx:anchor.x,cy:anchor.y,r:5,class:"lens-anchor"}));
+  svg.appendChild(layer);
+}
+
+/* svg helpers */
+function el(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function line(x1,y1,x2,y2,cls){svg.appendChild(el("line",{x1,y1,x2,y2,class:cls}));}
+function text(x,y,t,cls,anchor){const e=el("text",{x,y,class:cls,"text-anchor":anchor||"start"});e.textContent=t;svg.appendChild(e);}
+
+/* tooltip */
+const tip=$("#tooltip");
+const fmtCell=v=>(v==null?"—":v);
+function showTip(e,g,c){
+  tip.style.setProperty("--swatch",c);
+  if(g.members.length===1){
+    const p=g.members[0];
+    const rows=Object.entries(ATTRS).map(([k,a])=>`<div class="k">${a.label}</div><div class="v">${fmtCell(p[k])} <span style="color:var(--ink-faint)">${a.unit.split(" ")[0]}</span></div>`).join("");
+    tip.innerHTML=`<div class="tt-name">${p.part}</div><div class="tt-sub">${p.core} · ${p.series} · ${p.package}</div><div class="tt-grid">${rows}</div>`;
+  } else {
+    const cap=12, shown=g.members.slice(0,cap);
+    const xa=ATTRS[state.x], ya=ATTRS[state.y], za=ATTRS[state.z];
+    // clusters can span a small range of values, so show lo–hi where they differ
+    const rng=dim=>{const vs=g.members.map(m=>dv(dim,m[dim])), lo=Math.min(...vs), hi=Math.max(...vs);
+      return lo===hi?fmtCell(lo):`${fmtCell(lo)}–${fmtCell(hi)}`;};
+    const list=shown.map(m=>`<div class="k" style="color:${coreColor(m.core)}">${m.part}</div><div class="v">${m.core.replace("Cortex-","")} · ${m.package}</div>`).join("");
+    const more=g.members.length>cap?`<div class="tt-more">+${g.members.length-cap} more — click to list all</div>`:"";
+    tip.innerHTML=`<div class="tt-name">${g.members.length} parts here</div>`+
+      `<div class="tt-sub">${xa.label} ${rng(state.x)} · ${ya.label} ${rng(state.y)} · ${za.label} ${rng(state.z)}</div>`+
+      `<div class="tt-grid">${list}</div>${more}`;
+  }
+  tip.style.opacity=1; moveTip(e);
+}
+function moveTip(e){
+  const main=svg.getBoundingClientRect();
+  let x=e.clientX-main.left+14, y=e.clientY-main.top+14;
+  const tw=tip.offsetWidth, th=tip.offsetHeight;
+  if(x+tw>main.width) x=e.clientX-main.left-tw-14;
+  if(y+th>main.height) y=e.clientY-main.top-th-14;
+  tip.style.transform=`translate(${x}px,${y}px)`;
+}
+function hideTip(){tip.style.opacity=0;}
+
+/* detail card */
+const detail=$("#detail");
+/* clicking a stacked dot keeps the already-selected member if it's in the
+   stack, otherwise selects the first; the picker lets you switch between them */
+function selectGroup(g){
+  selectPart(g.members.find(m=>m.part===state.selected) || g.members[0]);
+}
+function renderSiblings(p){
+  const box=$("#d-siblings");
+  const sibs=visible().filter(q=>q[state.x]===p[state.x] && q[state.y]===p[state.y] && q[state.z]===p[state.z]);
+  if(sibs.length<=1){ box.style.display="none"; box.innerHTML=""; return; }
+  box.style.display="flex";
+  box.innerHTML=`<div class="sib-h">${sibs.length} parts at this location</div>`+
+    sibs.map(q=>`<button class="sib${q.part===p.part?" cur":""}" data-part="${q.part}">${q.part}</button>`).join("");
+  box.querySelectorAll(".sib").forEach(b=>b.onclick=()=>{
+    const q=DATA.parts.find(x=>x.part===b.dataset.part); if(q) selectPart(q);
+  });
+}
+function selectPart(p){
+  state.selected=p.part;
+  $("#d-name").textContent=p.part;
+  const c=coreColor(p.core);
+  $("#d-core").innerHTML=`<span style="color:${c}">${p.core}</span> · ${p.series} · ${p.package}`;
+  renderSiblings(p);
+  $("#d-list").innerHTML=Object.entries(ATTRS).map(([k,a])=>`<dt>${a.label}</dt><dd>${fmtCell(p[k])} ${a.unit.split(" ")[0]}</dd>`).join("");
+  $("#d-link").href=p.url;
+  detail.classList.add("show");
+  render();
+}
+function closeDetail(){
+  if(!state.selected) return;
+  detail.classList.remove("show");state.selected=null;render();
+}
+$("#detailClose").onclick=closeDetail;
+// click on empty plot space (anything that isn't a dot) dismisses the card,
+// but never treat the tail end of an orbit/pan drag as a click
+svg.addEventListener("click",e=>{ if(view._moved) return;
+  if(!e.target.classList.contains("dot-pt")){ closeDetail(); if(state.lensPart){state.lensPart=null; render();} } });
+
+/* ---- 3-D camera interaction: drag = rotate, shift/right-drag = pan,
+   wheel = zoom, double-click = reset view ---- */
+function camDown(e){
+  view._dragging=true; view._moved=false;
+  view._mode=(e.shiftKey||e.button===1||e.button===2)?"pan":"rotate";
+  view._lx=e.clientX; view._ly=e.clientY;
+  svg.classList.add("grabbing"); hideTip();
+}
+function camMove(e){
+  if(!view._dragging) return;
+  const dx=e.clientX-view._lx, dy=e.clientY-view._ly;
+  view._lx=e.clientX; view._ly=e.clientY;
+  if(Math.abs(dx)+Math.abs(dy)>2) view._moved=true;
+  if(view._mode==="pan"){ view.panX+=dx; view.panY+=dy; }
+  else { view.yaw+=dx*0.008; view.pitch=clamp(view.pitch+dy*0.008,-1.45,1.45); }
+  render();
+}
+function camUp(){ view._dragging=false; svg.classList.remove("grabbing"); }
+svg.addEventListener("mousedown",camDown);
+window.addEventListener("mousemove",camMove);
+window.addEventListener("mouseup",camUp);
+svg.addEventListener("contextmenu",e=>e.preventDefault());   // allow right-drag pan
+svg.addEventListener("wheel",e=>{
+  e.preventDefault();
+  // zoom about the cursor: screen = (c + pan) + zoom·v, so to keep the point
+  // under the mouse fixed we shift pan by pan' = m - c - k·(m - c - pan).
+  const rect=svg.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  const cx=(M.l+(W-M.r))/2, cy=((H-M.b)+M.t)/2;
+  const z0=view.zoom, z1=clamp(z0*Math.exp(-e.deltaY*0.0015),0.2,8), k=z1/z0;
+  view.panX=mx-cx-k*(mx-cx-view.panX);
+  view.panY=my-cy-k*(my-cy-view.panY);
+  view.zoom=z1;
+  render();
+},{passive:false});
+svg.addEventListener("dblclick",()=>{
+  Object.assign(view,DEFAULT_VIEW); render();
+});
+
+/* events */
+$("#xSel").onchange=e=>{state.x=e.target.value;render();};
+$("#ySel").onchange=e=>{state.y=e.target.value;render();};
+$("#zSel").onchange=e=>{state.z=e.target.value;render();};
+$("#sizeSel").onchange=e=>{state.size=e.target.value;render();};
+$("#xLog").onclick=function(){state.xLog=!state.xLog;this.setAttribute("aria-pressed",state.xLog);render();};
+$("#yLog").onclick=function(){state.yLog=!state.yLog;this.setAttribute("aria-pressed",state.yLog);render();};
+$("#zLog").onclick=function(){state.zLog=!state.zLog;this.setAttribute("aria-pressed",state.zLog);render();};
+function syncLogButtons(){
+  $("#xLog").setAttribute("aria-pressed",state.xLog);
+  $("#yLog").setAttribute("aria-pressed",state.yLog);
+  $("#zLog").setAttribute("aria-pressed",state.zLog);
+}
+syncLogButtons();
+$("#explodeAmt").oninput=e=>{
+  state.explodeAmt=+e.target.value;
+  $("#explodeVal").textContent=state.explodeAmt.toFixed(1)+"×";
+  render();
+};
+$("#search").oninput=e=>{state.search=e.target.value;render();};
+$("#coreAll").onclick=()=>setAll(state.cores,[...new Set(DATA.parts.map(p=>p.core))],$("#coreChips"),"core",true);
+$("#coreNone").onclick=()=>{setAll(state.cores,[],$("#coreChips"),"core",false);state.anchor.core=null;};
+$("#pkgAll").onclick=()=>setAll(state.packages,[...new Set(DATA.parts.map(p=>p.pkgFamily))],$("#pkgChips"),"pkg",true);
+$("#pkgNone").onclick=()=>{setAll(state.packages,[],$("#pkgChips"),"pkg",false);state.anchor.pkg=null;};
+$("#pinAll").onclick=()=>setAll(state.pins,[...new Set(DATA.parts.map(p=>p.pins))],$("#pinChips"),"pin",true);
+$("#pinNone").onclick=()=>{setAll(state.pins,[],$("#pinChips"),"pin",false);state.anchor.pin=null;};
+$("#serAll").onclick=()=>setAll(state.series,[...new Set(DATA.parts.map(p=>p.series))],$("#seriesChips"),"ser",true);
+$("#serNone").onclick=()=>{setAll(state.series,[],$("#seriesChips"),"ser",false);state.anchor.series=null;};
+$("#attrNone").onclick=()=>{setAll(state.attrsReq,[],$("#attrChips"),"attr",false);state.anchor.attr=null;};
+
+/* Reset: every membership filter on, Attributes cleared, anchors reset */
+function resetFilters(){
+  const uniq=f=>[...new Set(DATA.parts.map(f))];
+  setAll(state.cores,    uniq(p=>p.core),      $("#coreChips"),  "core",true);
+  setAll(state.series,   uniq(p=>p.series),    $("#seriesChips"),"ser", true);
+  setAll(state.packages, uniq(p=>p.pkgFamily), $("#pkgChips"),   "pkg", true);
+  setAll(state.pins,     uniq(p=>p.pins),      $("#pinChips"),   "pin", true);
+  setAll(state.attrsReq, [],                   $("#attrChips"),  "attr",false);
+  state.anchor={core:null, series:null, pkg:null, pin:null, attr:null};
+}
+// Reset re-fetches the dataset from stm32_data.json (which rebuilds all filters
+// fresh); resetFilters first so filters still clear if the reload can't reach it.
+$("#resetBtn").onclick=()=>{
+  state.xLog=DEFAULT_LOG.x; state.yLog=DEFAULT_LOG.y; state.zLog=DEFAULT_LOG.z; syncLogButtons();
+  Object.assign(view,DEFAULT_VIEW); resetFilters(); autoload();
+};
+$("#lensBtn").onclick=function(){
+  state.lens=!state.lens; this.setAttribute("aria-pressed",state.lens);
+  if(!state.lens) state.lensPart=null;                 // turning off clears the ring
+  render();
+};
+
+/* resize */
+function fit(){
+  const r=svg.getBoundingClientRect();
+  W=r.width; H=r.height;
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  render();
+}
+new ResizeObserver(fit).observe(svg);
+
+/* draggable splitter: sets --rail on .app; the ResizeObserver above re-fits.
+   Width persists across reloads via localStorage. */
+(function(){
+  const splitter=$("#splitter"), app=document.querySelector(".app"), KEY="stm32_rail";
+  const clamp=w=>Math.max(200, Math.min(w, Math.min(640, window.innerWidth-360)));
+  const setRail=w=>app.style.setProperty("--rail", clamp(w)+"px");
+
+  const saved=parseInt(localStorage.getItem(KEY),10);
+  if(saved>0) setRail(saved);
+
+  let dragging=false;
+  const onMove=e=>{ if(dragging) setRail(e.clientX-app.getBoundingClientRect().left); };
+  const stop=()=>{
+    if(!dragging) return;
+    dragging=false; splitter.classList.remove("dragging");
+    document.body.style.cursor=""; document.body.style.userSelect="";
+    localStorage.setItem(KEY, parseInt(app.style.getPropertyValue("--rail"),10));
+  };
+  splitter.addEventListener("mousedown",e=>{
+    dragging=true; splitter.classList.add("dragging");
+    document.body.style.cursor="col-resize"; document.body.style.userSelect="none";
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove",onMove);
+  window.addEventListener("mouseup",stop);
+})();
+
+/* init */
+buildAxisSelectors();
+buildFilters();
+fit();
+
+function applyDataset(j,how){
+  if(!j||!Array.isArray(j.parts)) throw new Error("missing parts[] array");
+  DATA=normalize(j); state.selected=null; detail.classList.remove("show");
+  buildFilters(); render();
+  console.info("Loaded stm32_data via "+how+":",j.parts.length,"parts");
+}
+
+/* precedence: the fetched stm32_data.json wins (works over http, e.g. GitHub
+   Pages), then the JS sidecar (window.STM32_DATA, for double-click under
+   file:// where fetch is blocked), else the built-in seed set. */
+async function autoload(){
+  try{
+    const res=await fetch("stm32_data.json",{cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    applyDataset(await res.json(),"fetch"); return;
+  }catch(err){
+    console.info("Could not fetch stm32_data.json:",err.message);
+  }
+  if(window.STM32_DATA){                          // file:// fallback (sidecar)
+    try{ applyDataset(window.STM32_DATA,"stm32_data.js"); return; }
+    catch(err){ console.info("stm32_data.js invalid:",err.message); }
+  }
+  console.info("Using built-in seed set.");
+}
+autoload();
+</script>
+</body>
+</html>

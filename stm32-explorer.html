@@ -245,6 +245,7 @@
     <div class="group toolbar">
       <button class="toolbtn" id="resetBtn" title="Reload stm32_data.json, enable all Core/Series/Package/Pin filters and clear Attributes">Reset</button>
       <button class="toolbtn icon" id="lensBtn" aria-pressed="false" title="Lens: when on, click a dot to label its 20 nearest neighbours in a ring">🔍</button>
+      <button class="toolbtn" id="turntableBtn" aria-pressed="false" title="Turntable: reset the view, then slowly orbit the graph (360° every 5 s) with a gentle up/down tilt">Turntable</button>
     </div>
 
     <div class="group">
@@ -1012,6 +1013,7 @@ svg.addEventListener("click",e=>{ if(view._moved) return;
 function camDown(e){
   view._dragging=true; view._moved=false;
   view._mode=(e.shiftKey||e.button===1||e.button===2)?"pan":"rotate";
+  if(view._mode==="rotate") stopTurntable();      // rotate-drag ends the spin; pan/zoom don't
   view._lx=e.clientX; view._ly=e.clientY;
   svg.classList.add("grabbing"); hideTip();
 }
@@ -1030,7 +1032,7 @@ window.addEventListener("mousemove",camMove);
 window.addEventListener("mouseup",camUp);
 svg.addEventListener("contextmenu",e=>e.preventDefault());   // allow right-drag pan
 svg.addEventListener("wheel",e=>{
-  e.preventDefault();
+  e.preventDefault();                             // zoom is allowed during turntable
   // zoom about the cursor: screen = (c + pan) + zoom·v, so to keep the point
   // under the mouse fixed we shift pan by pan' = m - c - k·(m - c - pan).
   const rect=svg.getBoundingClientRect();
@@ -1089,6 +1091,7 @@ function resetFilters(){
 // Reset re-fetches the dataset from stm32_data.json (which rebuilds all filters
 // fresh); resetFilters first so filters still clear if the reload can't reach it.
 $("#resetBtn").onclick=()=>{
+  stopTurntable();
   state.xLog=DEFAULT_LOG.x; state.yLog=DEFAULT_LOG.y; state.zLog=DEFAULT_LOG.z; syncLogButtons();
   Object.assign(view,DEFAULT_VIEW); resetFilters(); autoload();
 };
@@ -1096,6 +1099,37 @@ $("#lensBtn").onclick=function(){
   state.lens=!state.lens; this.setAttribute("aria-pressed",state.lens);
   if(!state.lens) state.lensPart=null;                 // turning off clears the ring
   render();
+};
+
+/* Turntable: reset pan/zoom, then animate yaw (spin about the vertical axis,
+   360° every 20 s) plus a smaller sinusoidal pitch (up/down tilt) that starts
+   from a side-on, zero-pitch view and completes one cycle every 55 s. Any
+   manual camera interaction cancels it. */
+const turntable={on:false, raf:0, t0:0, yaw0:0};
+const TURN_YAW_PERIOD=20;                              // seconds per 360° yaw
+const TURN_PITCH_PERIOD=55;                            // seconds per full up/down cycle
+const TURN_PITCH_AMP=0.45;                             // radians of up/down sway (about level)
+function turntableStep(now){
+  if(!turntable.on) return;
+  const t=(now-turntable.t0)/1000;                     // seconds elapsed
+  view.yaw=turntable.yaw0 + (2*Math.PI/TURN_YAW_PERIOD)*t;
+  view.pitch=clamp(TURN_PITCH_AMP*Math.sin((2*Math.PI/TURN_PITCH_PERIOD)*t), -1.45, 1.45);
+  render();
+  turntable.raf=requestAnimationFrame(turntableStep);
+}
+function stopTurntable(){
+  if(!turntable.on) return;
+  turntable.on=false; cancelAnimationFrame(turntable.raf);
+  $("#turntableBtn").setAttribute("aria-pressed",false);
+}
+$("#turntableBtn").onclick=function(){
+  if(turntable.on){ stopTurntable(); return; }
+  turntable.on=true; this.setAttribute("aria-pressed",true);
+  Object.assign(view,DEFAULT_VIEW);                    // recentre + default scale
+  view.pitch=0;                                        // start side-on (level, zero pitch)
+  turntable.yaw0=view.yaw;
+  turntable.t0=performance.now();
+  turntable.raf=requestAnimationFrame(turntableStep);
 };
 
 /* resize */

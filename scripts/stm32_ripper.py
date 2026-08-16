@@ -4,7 +4,7 @@ stm32_ripper.py  -  STM32 catalogue ripper for the Parametric Explorer
 ======================================================================
 
 Run this manually (or from cron, ~weekly) to regenerate `stm32_data.json`,
-the dataset consumed by stm32-explorer.html (Load dataset -> .json).
+the dataset consumed by stm32explorer.html (Load dataset -> .json).
 
 WHERE THE DATA COMES FROM
 -------------------------

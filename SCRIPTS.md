@@ -1,7 +1,7 @@
 # Scripts
 
 Helper scripts for building and pricing the dataset the viewer
-(`stm32-explorer.html`) reads. They live in `scripts/` but **read and write the
+(`stm32explorer.html`) reads. They live in `scripts/` but **read and write the
 data files in the repo root** (`stm32_data.json`, `stm32_data.js`, …) regardless
 of where you invoke them, so the conventional call is from the repo root:
 

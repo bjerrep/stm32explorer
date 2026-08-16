@@ -4,7 +4,7 @@
 
 View STM32 MCUs and CPUs in a 3D/4D graph. Click the image to launch the html page in browser.
 
-[![Screenshot](screenshot.png)](https://bjerrep.github.io/stm32viewer)
+[![Screenshot](screenshot.png)](https://bjerrep.github.io/stm32explorer)
 
 
 

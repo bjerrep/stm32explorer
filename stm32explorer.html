@@ -64,6 +64,11 @@
     font-size:16px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin:0;
   }
   header h1 b{color:var(--accent);font-weight:700}
+  header .ghlink{
+    margin-left:auto;font-size:16px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);text-decoration:none;transition:color .15s;
+  }
+  header .ghlink:hover{color:var(--ink)}
   .meta{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-dim);display:flex;gap:16px;flex-wrap:wrap}
   .meta span b{color:var(--ink);font-weight:500}
 
@@ -239,6 +244,7 @@
       <span>source <b id="m-source">seed</b></span>
       <span>updated <b id="m-date">—</b></span>
     </div>
+    <a class="ghlink" href="https://github.com/bjerrep/stm32explorer" target="_blank" rel="noopener">github</a>
   </header>
 
   <aside>

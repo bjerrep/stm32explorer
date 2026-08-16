@@ -6,7 +6,7 @@ View STM32 MCUs and CPUs in a 3D/4D graph. Click the image to launch the html pa
 
 [![Screenshot](screenshot.png)](https://bjerrep.github.io/stm32explorer)
 
-
+[https://bjerrep.github.io/stm32explorer](https://bjerrep.github.io/stm32explorer)
 
 It might bring some useful insights comparing e.g. different Arm core generations that might be not exactly easy to dig out on the st website.
 
